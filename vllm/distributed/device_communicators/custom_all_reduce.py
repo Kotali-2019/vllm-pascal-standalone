@@ -255,6 +255,21 @@ class CustomAllreduce:
                 "warning, specify disable_custom_all_reduce=True explicitly."
             )
             return
+        # CUDA IPC graph-buffer sharing (cudaIpcGetMemHandle) is unsupported
+        # on sm_60/sm_61 (Pascal).  It returns "invalid argument" and aborts
+        # the engine at startup when TP>1.  Fall back to NCCL/torch all-reduce.
+        if (
+            current_platform.is_cuda()
+            and not current_platform.has_device_capability(70, device.index)
+        ):
+            logger.warning(
+                "Custom allreduce is disabled because the device capability "
+                f"{current_platform.get_device_capability(device.index)} is "
+                "below sm_70. CUDA IPC graph-buffer sharing is not supported "
+                "on this GPU. To silence this warning, specify "
+                "disable_custom_all_reduce=True explicitly."
+            )
+            return
 
         self.disabled = False
         # Buffers memory are owned by this Python class and passed to C++.
