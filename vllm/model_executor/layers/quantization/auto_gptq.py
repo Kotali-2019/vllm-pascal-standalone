@@ -48,7 +48,6 @@ from vllm.model_executor.layers.quantization.utils.marlin_utils import (
     get_marlin_input_dtype,
     marlin_make_workspace_new,
     marlin_repeat_scales_on_all_ranks,
-    verify_marlin_supported,
 )
 from vllm.model_executor.layers.quantization.utils.quant_utils import (
     QuantKey,
@@ -313,12 +312,6 @@ class AutoGPTQLinearMethod(LinearMethodBase):
         self.quant_config = quant_config
         self.input_dtype = None
         self.quant_type = self.quant_config.quant_type
-
-        # Verify supported on platform.
-        verify_marlin_supported(
-            quant_type=self.quant_config.quant_type,
-            group_size=self.quant_config.group_size,
-        )
 
     def create_weights(
         self,

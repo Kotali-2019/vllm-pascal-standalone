@@ -64,7 +64,14 @@ def flashinfer_sampler_supported() -> bool:
             "VLLM_USE_FLASHINFER_SAMPLER=0."
         )
         return False
-    from vllm.v1.attention.backends.flashinfer import FlashInferBackend
+    try:
+        from vllm.v1.attention.backends.flashinfer import FlashInferBackend
+    except ImportError:
+        logger.warning_once(
+            "FlashInfer top-p/top-k sampling unavailable: "
+            "flashinfer package not installed. Falling back to native sampler."
+        )
+        return False
 
     capability = current_platform.get_device_capability()
     assert capability is not None
