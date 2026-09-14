@@ -42,6 +42,9 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
     """
 
     FLASH_ATTN = "vllm.v1.attention.backends.flash_attn.FlashAttentionBackend"
+    FLASH_ATTN_LEGACY = (
+        "vllm.v1.attention.backends.flash_attn_legacy.FlashAttentionLegacyBackend"
+    )
     FLASH_ATTN_DIFFKV = (
         "vllm.v1.attention.backends.flash_attn_diffkv.FlashAttentionDiffKVBackend"
     )

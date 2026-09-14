@@ -59,6 +59,11 @@ class INCWNA16LinearScheme(INCLinearScheme):
                 self.layer_config.group_size,
                 has_zp=not self.layer_config.sym,
             )
+            # Fallback to AutoGPTQ when Marlin is unavailable (e.g. sm_61).
+            if not use_marlin:
+                from vllm.platforms import current_platform
+
+                use_marlin = not current_platform.is_cpu() and not current_platform.is_xpu()
 
         if use_marlin:
             from vllm.model_executor.layers.quantization.auto_gptq import (
