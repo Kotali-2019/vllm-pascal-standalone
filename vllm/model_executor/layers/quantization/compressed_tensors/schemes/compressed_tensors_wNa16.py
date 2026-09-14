@@ -92,8 +92,10 @@ class CompressedTensorsWNA16(CompressedTensorsScheme):
 
     @classmethod
     def get_min_capability(cls) -> int:
-        # Turing and up
-        return 75
+        # Pascal (sm_60) and up: the WNA16 path runs on Exllama, whose
+        # floor is sm_60. choose_mp_linear_kernel + Exllama.can_implement do
+        # the per-config filtering (e.g. fp16 activations, group quant).
+        return 60
 
     def create_weights(
         self,

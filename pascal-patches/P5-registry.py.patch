@@ -1,0 +1,14 @@
+diff --git a/vllm/v1/attention/backends/registry.py b/vllm/v1/attention/backends/registry.py
+index 6fc9dd1e1f..054896caec 100644
+--- a/vllm/v1/attention/backends/registry.py
++++ b/vllm/v1/attention/backends/registry.py
+@@ -42,6 +42,9 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
+     """
+ 
+     FLASH_ATTN = "vllm.v1.attention.backends.flash_attn.FlashAttentionBackend"
++    FLASH_ATTN_LEGACY = (
++        "vllm.v1.attention.backends.flash_attn_legacy.FlashAttentionLegacyBackend"
++    )
+     FLASH_ATTN_DIFFKV = (
+         "vllm.v1.attention.backends.flash_attn_diffkv.FlashAttentionDiffKVBackend"
+     )

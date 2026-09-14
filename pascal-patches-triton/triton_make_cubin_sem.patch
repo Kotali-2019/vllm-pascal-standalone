@@ -1,0 +1,28 @@
+--- a/triton/backends/nvidia/compiler.py
++++ b/triton/backends/nvidia/compiler.py
+@@ -460,6 +460,18 @@ class NVIDIABackend(BaseBackend):
+     def make_cubin(self, src, metadata, opt, capability):
+         ptxas = get_ptxas(self.target.arch).path
++        # Strip memory-ordering suffixes from atomic PTX for sm_60/sm_61.
++        # CUDA 12.8 ptxas rejects .acq_rel and .relaxed for sm_6x; Pascal
++        # atomic instructions (atomicAdd, atomicOr, etc.) do not support named
++        # memory ordering in PTX.  See: sm_60_atomic_functions.h in this
++        # backend's include dir.
++        if capability <= 61:
++            n_orig = len(re.findall(r'atom\.global\.gpu\.\w+\.', src))
++            src = re.sub(
++                r'atom\.global\.gpu\.(acq_rel|relaxed|acquire|release)\.',
++                'atom.global.gpu.',
++                src,
++            )
++            n_fix = len(re.findall(r'atom\.global\.gpu\.\w+\.', src))
++            n_stripped = n_orig - n_fix
++            if n_stripped:
++                print(
++                    f"[triton-pascal] stripped {n_stripped} mem-order suffix(es) "
++                    f"from atom instructions (sm_{capability//10}{capability%10}, "
++                    f"kernel={metadata.get('name', '<unknown>')})",
++                )
+         with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.ptx') as fsrc, \
+             tempfile.NamedTemporaryFile(delete=False, mode='r', suffix='.log') as flog:
+             fsrc.write(src)

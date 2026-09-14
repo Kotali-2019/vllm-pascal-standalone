@@ -1,0 +1,41 @@
+diff --git a/csrc/libtorch_stable/attention/dcp_utils/dcp_direct_common.cuh b/csrc/libtorch_stable/attention/dcp_utils/dcp_direct_common.cuh
+index 968f8c6d73..6cb057a5a3 100644
+--- a/csrc/libtorch_stable/attention/dcp_utils/dcp_direct_common.cuh
++++ b/csrc/libtorch_stable/attention/dcp_utils/dcp_direct_common.cuh
+@@ -55,14 +55,22 @@ __device__ __forceinline__ void multimem_store_release_system(uint32_t* mc_ptr,
+ 
+ __device__ __forceinline__ void store_release_system(uint32_t* ptr,
+                                                      uint32_t value) {
++#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
+   uint64_t address = reinterpret_cast<uint64_t>(ptr);
+   asm volatile("st.global.release.sys.u32 [%0], %1;"
+                :
+                : "l"(address), "r"(value)
+                : "memory");
++#else
++  // sm_60/sm_61 (Pascal) lack the .release memory-ordering modifier
++  // (requires sm_70+). DCP is a sm_90+ (multimem) feature, so fail loud
++  // if this path is ever reached on Pascal.
++  asm volatile("trap;");
++#endif
+ }
+ 
+ __device__ __forceinline__ uint32_t load_acquire_system(const uint32_t* ptr) {
++#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
+   uint32_t value;
+   uint64_t address = reinterpret_cast<uint64_t>(ptr);
+   asm volatile("ld.global.acquire.sys.u32 %0, [%1];"
+@@ -70,6 +78,13 @@ __device__ __forceinline__ uint32_t load_acquire_system(const uint32_t* ptr) {
+                : "l"(address)
+                : "memory");
+   return value;
++#else
++  // sm_60/sm_61 (Pascal) lack the .acquire memory-ordering modifier
++  // (requires sm_70+). DCP is a sm_90+ (multimem) feature, so fail loud
++  // if this path is ever reached on Pascal.
++  asm volatile("trap;");
++  return 0;
++#endif
+ }
+ 
+ __device__ __forceinline__ bool wait_for_epoch(const uint32_t* ptr,

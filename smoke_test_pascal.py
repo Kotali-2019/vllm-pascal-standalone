@@ -1,0 +1,106 @@
+#!/usr/bin/env python
+"""
+smoke_test_pascal.py — quick smoke test for the Pascal (sm_61) vLLM env.
+
+Verifies, on the actual P106-100 GPU:
+  1. Triton  — a @triton.jit kernel compiles for sm_61 and runs correctly.
+               (This is the one that matters: you patched PyTorch's Triton to
+                lower the min arch from .major>=7 to .major>=6, and vLLM uses
+                Triton kernels. If this passes, the Triton patch works.)
+  2. FlashInfer — importable + API intact. NOTE: flashinfer's compute kernels
+               (FP8/FP4 GEMM, modern attention) are gated to sm_75+/sm_80/sm_89+/
+                sm_100 and do NOT run on sm_61, so this is an import/API check,
+                not a kernel run.
+
+Run directly (no pytest needed):
+    source /root/cuda_pascal.sh
+    /root/.pyenv/versions/cuda12Pascal/bin/python smoke_test_pascal.py
+
+Or with pytest (if installed):
+    pytest -q smoke_test_pascal.py
+"""
+import sys
+
+import torch
+
+# ---------------------------------------------------------------------------
+# Triton
+# ---------------------------------------------------------------------------
+def test_triton_kernel_runs_on_sm61():
+    import triton
+    import triton.language as tl
+
+    @triton.jit
+    def _add(x_ptr, y_ptr, out_ptr, n, BLOCK: tl.constexpr):
+        pid = tl.program_id(0)
+        offs = pid * BLOCK + tl.arange(0, BLOCK)
+        mask = offs < n
+        x = tl.load(x_ptr + offs, mask=mask)
+        y = tl.load(y_ptr + offs, mask=mask)
+        tl.store(out_ptr + offs, x + y, mask=mask)
+
+    n = 1024
+    x = torch.randn(n, device="cuda")
+    y = torch.randn(n, device="cuda")
+    out = torch.empty_like(x)
+    BLOCK = 1024
+    _add[(triton.cdiv(n, BLOCK),)](x, y, out, n, BLOCK=BLOCK)
+    torch.cuda.synchronize()
+
+    ref = x + y
+    max_err = (out - ref).abs().max().item()
+    assert max_err < 1e-5, f"triton add mismatch, max err={max_err}"
+    print(f"    triton: compiled+ran on {torch.cuda.get_device_name(0)} "
+          f"(cap {torch.cuda.get_device_capability(0)}), max err={max_err:.2e}")
+
+
+# ---------------------------------------------------------------------------
+# FlashInfer
+# ---------------------------------------------------------------------------
+def test_flashinfer_import_and_api():
+    import flashinfer
+    # import-level + a couple of representative symbols
+    assert hasattr(flashinfer, "gemm"), "flashinfer.gemm missing"
+    from flashinfer import gemm as _g
+    assert hasattr(_g, "mm_fp8"), "flashinfer.gemm.mm_fp8 missing"
+    print(f"    flashinfer {flashinfer.__version__}: import + API OK")
+    print("    NOTE: flashinfer compute kernels (mm_fp8, attention) target "
+          "sm_75+/sm_80/sm_89+/sm_100 and do NOT run on sm_61; "
+          "vLLM will fall back to its FlashAttention/Triton backends on Pascal.")
+
+
+# ---------------------------------------------------------------------------
+# Runner
+# ---------------------------------------------------------------------------
+def _run(fn):
+    name = fn.__name__.replace("test_", "")
+    try:
+        fn()
+        print(f"  PASS  {name}")
+        return True
+    except Exception as e:
+        print(f"  FAIL  {name}: {type(e).__name__}: {e}")
+        return False
+
+
+def main():
+    if not torch.cuda.is_available():
+        print("CUDA not available — cannot run smoke test")
+        return 2
+    print(f"GPU: {torch.cuda.get_device_name(0)} "
+          f"cap={torch.cuda.get_device_capability(0)}  "
+          f"torch={torch.__version__}")
+    results = [
+        _run(test_triton_kernel_runs_on_sm61),
+        _run(test_flashinfer_import_and_api),
+    ]
+    print()
+    if all(results):
+        print("ALL PASSED")
+        return 0
+    print("SOME FAILED (see above)")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
