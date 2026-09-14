@@ -115,7 +115,11 @@ class CompressedTensorsConfig(QuantizationConfig):
 
     @classmethod
     def get_min_capability(cls) -> int:
-        return 70
+        # Floor set to the lowest-capability kernel any scheme can use
+        # (Exllama, sm_60/Pascal). Per-scheme gates and choose_mp_linear_kernel
+        # do the real capability filtering; this only decides whether the
+        # method is considered at all.
+        return 60
 
     def get_name(self) -> QuantizationMethods:
         return "compressed-tensors"
