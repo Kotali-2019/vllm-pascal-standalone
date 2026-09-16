@@ -646,3 +646,72 @@ def test_add_lora_fused_moe_early_exit(device):
     assert torch.equal(y, y_snapshot), (
         "add_lora_fused_moe modified output tensor despite no_lora_flag_cpu=True"
     )
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_add_lora_linear_row_mask(device):
+    """
+    The per-row LoRA gate (Psi-Spec two-pass drafter) must zero the LoRA
+    delta for rows whose mask is 0.0 and pass it through unchanged where the
+    mask is 1.0. Rows are in token order, so the mask aligns with the shrink
+    buffer rows.
+    """
+    from types import SimpleNamespace
+
+    from vllm.lora.punica_wrapper.punica_gpu import PunicaWrapperGPU
+
+    torch.set_default_device(device)
+    torch.accelerator.set_device_index(device)
+
+    max_loras, num_tokens = 2, 4
+    rank, hidden, out = 8, 16, 16
+    scale = 1.0
+
+    lora_config = SimpleNamespace(
+        max_loras=max_loras,
+        specialize_active_lora=False,
+    )
+    wrapper = PunicaWrapperGPU(
+        max_num_batched_tokens=num_tokens,
+        max_batches=num_tokens,
+        device=device,
+        lora_config=lora_config,
+    )
+
+    # All tokens use adapter id 1 so the shrink/expand kernels run the LoRA.
+    lora_mapping = torch.full((num_tokens,), 1, dtype=torch.int32, device=device)
+    wrapper.token_mapping_meta.prepare_tensors(lora_mapping)
+
+    # Kernel inputs must be fp16/bf16; the reference is computed in fp32.
+    x = torch.rand(num_tokens, hidden, dtype=torch.float16, device=device)
+    lora_a_stacked = (
+        torch.rand(max_loras, 1, rank, hidden, dtype=torch.float16, device=device),
+    )
+    lora_b_stacked = (
+        torch.rand(max_loras, 1, out, rank, dtype=torch.float16, device=device),
+    )
+    output_slices = (out,)
+
+    # Reference LoRA delta for the active adapter (id 1), in fp32.
+    A = lora_a_stacked[0][1, 0].float()  # (rank, hidden)
+    B = lora_b_stacked[0][1, 0].float()  # (out, rank)
+    ref_delta = ((x.float() @ A.T) * scale) @ B.T  # (num_tokens, out)
+
+    # No gate: full LoRA delta on every row.
+    y = torch.zeros(num_tokens, out, dtype=torch.float32, device=device)
+    wrapper.lora_row_mask = None
+    wrapper.add_lora_linear(y, x, lora_a_stacked, lora_b_stacked, scale, output_slices)
+    assert_close(y, ref_delta)
+
+    # Gated: rows 0 and 2 (mask 0) get no LoRA; rows 1 and 3 (mask 1) do.
+    mask = torch.tensor([0.0, 1.0, 0.0, 1.0], dtype=torch.float32, device=device)
+    y = torch.zeros(num_tokens, out, dtype=torch.float32, device=device)
+    wrapper.lora_row_mask = mask
+    wrapper.add_lora_linear(y, x, lora_a_stacked, lora_b_stacked, scale, output_slices)
+    wrapper.lora_row_mask = None
+
+    expected = ref_delta * mask.view(-1, 1)
+    assert_close(y, expected)
+    # Explicitly confirm the gated-off rows are exactly zero.
+    assert torch.allclose(y[0], torch.zeros(out, device=device), atol=1e-5)
+    assert torch.allclose(y[2], torch.zeros(out, device=device), atol=1e-5)

@@ -257,6 +257,11 @@ class PunicaWrapperGPU(PunicaWrapperBase):
             scale,
             **kwargs,
         )
+        # Per-row gate (Psi-Spec two-pass drafter): zero the LoRA hidden for
+        # rows whose mask is 0 so only the base linear contributes for those
+        # tokens. Rows are in token order, so the mask aligns with buffer rows.
+        if self.lora_row_mask is not None:
+            buffer.mul_(self.lora_row_mask.view(1, x.size(0), 1))
         self.add_expand(
             y,
             buffer,  # type: ignore

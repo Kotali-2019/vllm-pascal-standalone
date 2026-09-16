@@ -164,6 +164,11 @@ class PunicaWrapperBase(PunicaWrapperABC):
         self.batch_size: int = -1
         self.is_prefill = False
         self.no_lora = False
+        # Optional per-row (per-token) multiplicative gate on the LoRA delta,
+        # shape [num_tokens]. Rows with 0.0 pass only the base linear (LoRA off
+        # for that token); rows with 1.0 apply the full LoRA. Set per forward by
+        # the two-pass (Psi-Spec) drafter; None disables the gate.
+        self.lora_row_mask: torch.Tensor | None = None
 
     def _update_base_metadata(
         self,

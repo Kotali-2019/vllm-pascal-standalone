@@ -16,6 +16,8 @@ from vllm.config import VllmConfig
 from vllm.config.lora import LoRAConfig
 from vllm.logger import init_logger
 from vllm.lora.layers import LoRAMapping, LoRAMappingType
+from vllm.lora.model_manager import DEFAULT_LANGUAGE_WRAPPER_KEY
+from vllm.lora.punica_wrapper import PunicaWrapperBase
 from vllm.lora.request import LoRARequest
 from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
 from vllm.model_executor.models import supports_lora
@@ -85,6 +87,19 @@ class LoRAModelRunnerMixin:
     def _ensure_lora_enabled(self) -> None:
         if not hasattr(self, "lora_manager"):
             raise RuntimeError("LoRA is not enabled. Use --enable-lora to enable LoRA.")
+
+    def get_lora_punica_wrapper(self) -> PunicaWrapperBase | None:
+        """Return the language-model PunicaWrapper, or None if LoRA is off.
+
+        The two-pass (Psi-Spec) drafter uses this to set a per-row LoRA gate
+        (``lora_row_mask``) for a single forward.
+        """
+        if not self.lora_config:
+            return None
+        manager = getattr(self.lora_manager, "_adapter_manager", None)
+        if manager is None:
+            return None
+        return manager.punica_wrapper_mapping.get(DEFAULT_LANGUAGE_WRAPPER_KEY)
 
     def set_active_loras(
         self,
